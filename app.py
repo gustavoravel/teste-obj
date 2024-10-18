@@ -11,14 +11,22 @@ contas = {}
 
 @app.route('/conta', methods=['GET'])
 def consultar_conta():
-    numero_conta = request.args.get('numero_conta')
+    numero_conta_str = request.args.get('numero_conta')
 
-    # Verificar se a conta existe
+    if numero_conta_str is None:
+        return jsonify({"message": "Número da conta não fornecido."}), 400
+
+    try:
+        numero_conta = int(numero_conta_str)
+    except ValueError:
+        return jsonify({"message": "Número da conta deve ser um inteiro."}), 400
+
     if numero_conta not in contas:
         return jsonify({"message": "Conta não encontrada."}), 404
 
     saldo = contas[numero_conta]["saldo"]
     return jsonify({"numero_conta": numero_conta, "saldo": saldo}), 200
+
 
 
 @app.route('/conta', methods=['POST'])
@@ -74,3 +82,5 @@ def realizar_transacao():
 
     return jsonify({"numero_conta": numero_conta, "saldo": contas[numero_conta]["saldo"]}), 201
 
+if __name__ == '__main__':
+    app.run(debug=True)
