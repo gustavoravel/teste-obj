@@ -1,13 +1,22 @@
 from flask import Flask, request, jsonify, abort
 
+from database import db
+from models import Conta
+
 
 app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///db.sqlite3'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db.init_app(app)
+
+with app.app_context():
+    db.create_all()
 
 TAXA_DEBITO = 0.03
 TAXA_CREDITO = 0.05
 TAXA_PIX = 0.0
 
-contas = {}
 
 @app.route('/conta', methods=['GET'])
 def consultar_conta():
@@ -21,12 +30,12 @@ def consultar_conta():
     except ValueError:
         return jsonify({"message": "Número da conta deve ser um inteiro."}), 400
 
-    if numero_conta not in contas:
+    conta = Conta.query.get(numero_conta)
+    
+    if conta is None:
         return jsonify({"message": "Conta não encontrada."}), 404
 
-    saldo = contas[numero_conta]["saldo"]
-    return jsonify({"numero_conta": numero_conta, "saldo": saldo}), 200
-
+    return jsonify({"numero_conta": conta.numero_conta, "saldo": conta.saldo}), 200
 
 
 @app.route('/conta', methods=['POST'])
@@ -35,16 +44,14 @@ def criar_conta():
     numero_conta = data.get('numero_conta')
     saldo = data.get('saldo')
 
-    # Verificar se a conta já existe
-    if numero_conta in contas:
+    if Conta.query.get(numero_conta):
         return jsonify({"message": "Conta já existe."}), 400
 
-    # Criar nova conta
-    contas[numero_conta] = {
-        "saldo": saldo
-    }
+    nova_conta = Conta(numero_conta=numero_conta, saldo=saldo)
+    db.session.add(nova_conta)
+    db.session.commit()
 
-    return jsonify({"numero_conta": numero_conta, "saldo": saldo}), 201
+    return jsonify(nova_conta.to_dict()), 201
 
 
 @app.route('/transacao', methods=['POST'])
@@ -54,33 +61,25 @@ def realizar_transacao():
     numero_conta = data.get('numero_conta')
     valor = data.get('valor')
 
-    # Verificar se a conta existe
-    if numero_conta not in contas:
+    conta = Conta.query.get(numero_conta)
+    if conta is None:
         return jsonify({"message": "Conta não encontrada."}), 404
 
-    # Obter saldo atual
-    saldo_atual = contas[numero_conta]["saldo"]
+    taxa = 0
+    if forma_pagamento == 'D':
+        taxa = 0.03 * valor
+    elif forma_pagamento == 'C':
+        taxa = 0.05 * valor
 
-    # Calcular a taxa
-    if forma_pagamento == "D":
-        taxa = valor * TAXA_DEBITO
-    elif forma_pagamento == "C":
-        taxa = valor * TAXA_CREDITO
-    elif forma_pagamento == "P":
-        taxa = TAXA_PIX
-    else:
-        return jsonify({"message": "Forma de pagamento inválida."}), 400
+    valor_total = valor + taxa
 
-    total_a_pagar = valor + taxa
-
-    # Verificar se o saldo é suficiente
-    if saldo_atual < total_a_pagar:
+    if conta.saldo < valor_total:
         return jsonify({"message": "Saldo insuficiente."}), 404
 
-    # Realizar a transação
-    contas[numero_conta]["saldo"] -= total_a_pagar
+    conta.saldo -= valor_total
+    db.session.commit()
 
-    return jsonify({"numero_conta": numero_conta, "saldo": contas[numero_conta]["saldo"]}), 201
+    return jsonify(conta.to_dict()), 201
 
 if __name__ == '__main__':
     app.run(debug=True)
